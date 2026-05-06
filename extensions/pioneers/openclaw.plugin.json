@@ -1,0 +1,71 @@
+{
+  "id": "pioneers",
+  "activation": {
+    "onStartup": false
+  },
+  "enabledByDefault": true,
+  "providerDiscoveryEntry": "./provider-discovery.ts",
+  "providers": ["pioneers"],
+  "providerEndpoints": [
+    {
+      "endpointClass": "pioneers-anthropic",
+      "hosts": ["alpha.pioneers.dev"]
+    }
+  ],
+  "providerRequest": {
+    "providers": {
+      "pioneers": {
+        "family": "anthropic"
+      }
+    }
+  },
+  "modelCatalog": {
+    "providers": {
+      "pioneers": {
+        "baseUrl": "https://alpha.pioneers.dev",
+        "api": "anthropic-messages",
+        "models": [
+          {
+            "id": "auto",
+            "name": "Pioneer Auto",
+            "input": ["text", "image"],
+            "contextWindow": 200000,
+            "maxTokens": 16384,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            }
+          }
+        ]
+      }
+    },
+    "discovery": {
+      "pioneers": "static"
+    }
+  },
+  "providerAuthEnvVars": {
+    "pioneers": ["PIONEERS_API_KEY"]
+  },
+  "providerAuthChoices": [
+    {
+      "provider": "pioneers",
+      "method": "api-key",
+      "choiceId": "pioneers-api-key",
+      "choiceLabel": "Pioneers API key",
+      "groupId": "pioneers",
+      "groupLabel": "Pioneers",
+      "groupHint": "API key",
+      "optionKey": "pioneersApiKey",
+      "cliFlag": "--pioneers-api-key",
+      "cliOption": "--pioneers-api-key <key>",
+      "cliDescription": "Pioneers API key"
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
