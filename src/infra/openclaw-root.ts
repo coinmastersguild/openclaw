@@ -2,7 +2,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openClawRootFs, openClawRootFsSync } from "./openclaw-root.fs.runtime.js";
 
-const CORE_PACKAGE_NAMES = new Set(["openclaw"]);
+// Recognize the bare upstream name and any scoped fork that publishes as
+// `@<scope>/openclaw` (e.g. `@coinmastersguild/openclaw`). The CLI binary stays
+// `openclaw` regardless of scope, so packageRoot resolution must not be
+// scope-coupled — otherwise consumers like `resolveWorkspaceTemplateDir` fall
+// through to a cwd-relative path and fail at onboarding time.
+const CORE_PACKAGE_BASENAME = "openclaw";
+const CORE_SCOPED_PACKAGE_PATTERN = /^@[^/]+\/openclaw$/;
+
+function isCorePackageName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return name === CORE_PACKAGE_BASENAME || CORE_SCOPED_PACKAGE_PATTERN.test(name);
+}
 const packageNameCache = new Map<string, string | null>();
 const packageRootCache = new Map<string, string | null>();
 const argv1CandidateCache = new Map<string, string[]>();
@@ -45,7 +56,7 @@ function readPackageNameSync(dir: string): string | null {
 async function findPackageRoot(startDir: string, maxDepth = 12): Promise<string | null> {
   for (const current of iterAncestorDirs(startDir, maxDepth)) {
     const name = await readPackageName(current);
-    if (name && CORE_PACKAGE_NAMES.has(name)) {
+    if (isCorePackageName(name)) {
       return current;
     }
   }
@@ -55,7 +66,7 @@ async function findPackageRoot(startDir: string, maxDepth = 12): Promise<string 
 function findPackageRootSync(startDir: string, maxDepth = 12): string | null {
   for (const current of iterAncestorDirs(startDir, maxDepth)) {
     const name = readPackageNameSync(current);
-    if (name && CORE_PACKAGE_NAMES.has(name)) {
+    if (isCorePackageName(name)) {
       return current;
     }
   }
