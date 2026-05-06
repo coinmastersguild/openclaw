@@ -322,6 +322,11 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/deepseek/**"
+"extensions: pioneers":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/pioneers/**"
+          - "docs/providers/pioneers.md"
 "extensions: deepinfra":
   - changed-files:
       - any-glob-to-any-file:
