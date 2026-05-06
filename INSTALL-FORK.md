@@ -10,7 +10,15 @@ curl -fsSL --proto '=https' --tlsv1.2 \
   | bash
 ```
 
-This downloads `scripts/install.fork.sh`, ensures Node 22+, installs `@coinmastersguild/openclaw@latest` globally via npm, and runs `openclaw onboard`.
+This downloads `scripts/install.fork.sh`, ensures Node 22+, installs `@coinmastersguild/openclaw@latest` globally via npm, and runs `openclaw onboard`. Onboarding reattaches to your terminal via `/dev/tty`, so it works correctly even though stdin is the curl pipe.
+
+> **Existing upstream install?** Both packages ship the same `openclaw` binary, so npm refuses to overwrite. The installer detects this and asks you to remove the upstream package first:
+>
+> ```bash
+> npm uninstall -g openclaw
+> ```
+>
+> Then re-run the curl one-liner. Or use `--install-method git` to install side-by-side from a checkout.
 
 ### Common variations
 
