@@ -1373,6 +1373,7 @@
                   "providers/opencode-go",
                   "providers/openrouter",
                   "providers/perplexity-provider",
+                  "providers/pioneers",
                   "providers/qianfan",
                   "providers/qwen",
                   "providers/runway",

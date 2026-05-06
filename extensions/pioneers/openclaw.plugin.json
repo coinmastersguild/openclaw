@@ -8,7 +8,7 @@
   "providers": ["pioneers"],
   "providerEndpoints": [
     {
-      "endpointClass": "pioneers-anthropic",
+      "endpointClass": "pioneers-native",
       "hosts": ["alpha.pioneers.dev"]
     }
   ],

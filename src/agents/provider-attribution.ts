@@ -53,6 +53,7 @@ export type ProviderEndpointClass =
   | "opencode-native"
   | "azure-openai"
   | "openrouter"
+  | "pioneers-native"
   | "xai-native"
   | "zai-native"
   | "google-generative-ai"
@@ -148,6 +149,7 @@ const MANIFEST_PROVIDER_ENDPOINT_CLASSES = new Set<ProviderEndpointClass>([
   "opencode-native",
   "azure-openai",
   "openrouter",
+  "pioneers-native",
   "xai-native",
   "zai-native",
   "google-generative-ai",
