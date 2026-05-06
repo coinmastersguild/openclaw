@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Fork install pipeline: add `scripts/install.fork.sh`, `.github/workflows/release-fork.yml`, and `INSTALL-FORK.md` so users can install the CoinMastersGuild fork via `curl ... raw.githubusercontent.com/coinmastersguild/openclaw/main/scripts/install.fork.sh | bash` and the `release-fork` workflow can publish to npm under `@coinmastersguild/openclaw` on `v*-cmg.*` tag pushes; the in-tree package name stays `openclaw` so upstream test fixtures still pass. Thanks @BitHighlander.
 - Providers/Pioneers: add a bundled `pioneers` provider plugin that registers `alpha.pioneers.dev` as an Anthropic-compatible smart router with one user-facing `pioneers/auto` model (200K context, text + image), selectable in the setup wizard via the `Pioneers API key` choice using a `sk-pioneer-` key from [alpha.pioneers.dev/keys](https://alpha.pioneers.dev/keys). Thanks @BitHighlander.
 - PR triage: mark external pull requests with `proof: supplied` when Barnacle finds structured real behavior proof, keep stale negative proof labels in sync across CRLF-edited PR bodies, and let ClawSweeper own the stronger `proof: sufficient` judgement.
 - Sessions CLI: show the selected agent runtime in the `openclaw sessions` table so terminal output matches the runtime visibility already present in JSON/status surfaces. Thanks @vincentkoc.

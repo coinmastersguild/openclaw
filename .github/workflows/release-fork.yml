@@ -1,0 +1,148 @@
+name: release-fork
+
+# Publishes the fork to npm under @coinmastersguild/openclaw.
+#
+# Triggers
+#   - Push a tag matching v*-cmg.* (e.g. v2026.5.5-cmg.1) on coinmastersguild/openclaw
+#   - Manual dispatch via the Actions UI (input the version explicitly)
+#
+# Required repo secrets
+#   NPM_TOKEN   classic automation token with publish access on @coinmastersguild
+#
+# How it works
+#   1. Install + build with the in-tree package name ("openclaw") so workspace
+#      imports like `from "openclaw/plugin-sdk/*"` still resolve.
+#   2. Rewrite package.json `name` → @coinmastersguild/openclaw and `version`
+#      → the tag value (strip leading 'v').
+#   3. npm publish --access public.
+#
+# The in-tree package.json is intentionally kept as `name: "openclaw"` so
+# upstream merges and the existing RTT/install-sh/package-acceptance test
+# fixtures (which assert the bare name) continue to work.
+
+on:
+  push:
+    tags:
+      - "v*-cmg.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (without leading v, e.g. 2026.5.5-cmg.1)"
+        required: true
+        type: string
+      dist_tag:
+        description: "npm dist-tag (default: latest)"
+        required: false
+        type: string
+        default: "latest"
+      dry_run:
+        description: "Dry run (npm pack only; no publish)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-fork-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FORK_PACKAGE_NAME: "@coinmastersguild/openclaw"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve version + dist-tag
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            ref="${GITHUB_REF#refs/tags/}"
+            version="${ref#v}"
+            dist_tag="latest"
+          else
+            version="${{ inputs.version }}"
+            dist_tag="${{ inputs.dist_tag }}"
+            dist_tag="${dist_tag:-latest}"
+          fi
+          if [[ -z "$version" ]]; then
+            echo "::error::Could not resolve a version to publish"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $version (dist-tag: $dist_tag)"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build Control UI
+        run: pnpm ui:build
+
+      - name: Smoke-test built CLI
+        run: node openclaw.mjs --help | head -20
+
+      - name: Rewrite package.json (name + version)
+        env:
+          FORK_VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const pkgPath = "package.json";
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+          const targetName = process.env.FORK_PACKAGE_NAME;
+          const targetVersion = process.env.FORK_VERSION;
+          if (!targetName || !targetVersion) {
+            throw new Error("FORK_PACKAGE_NAME and FORK_VERSION must be set");
+          }
+          pkg.name = targetName;
+          pkg.version = targetVersion;
+          if (pkg.repository && typeof pkg.repository === "object") {
+            pkg.repository.url = "git+https://github.com/coinmastersguild/openclaw.git";
+          }
+          if (pkg.bugs && typeof pkg.bugs === "object") {
+            pkg.bugs.url = "https://github.com/coinmastersguild/openclaw/issues";
+          }
+          pkg.homepage = "https://github.com/coinmastersguild/openclaw#readme";
+          fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+          console.log(`Rewrote package.json: ${targetName}@${targetVersion}`);
+          NODE
+
+      - name: npm pack (sanity)
+        run: |
+          set -euo pipefail
+          npm pack --dry-run | tail -40
+
+      - name: npm publish
+        if: ${{ github.event_name == 'push' || inputs.dry_run != true }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --tag "${{ steps.resolve.outputs.dist_tag }}"
+
+      - name: Dry-run note
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: |
+          echo "Dry-run requested; skipped npm publish. Package would be:"
+          echo "  ${FORK_PACKAGE_NAME}@${{ steps.resolve.outputs.version }} --tag ${{ steps.resolve.outputs.dist_tag }}"
