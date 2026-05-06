@@ -12,13 +12,18 @@ name: release-fork
 # How it works
 #   1. Install + build with the in-tree package name ("openclaw") so workspace
 #      imports like `from "openclaw/plugin-sdk/*"` still resolve.
-#   2. Rewrite package.json `name` → @coinmastersguild/openclaw and `version`
-#      → the tag value (strip leading 'v').
+#   2. Rewrite package.json `name` -> @coinmastersguild/openclaw and `version`
+#      -> the validated tag value (strip leading 'v').
 #   3. npm publish --access public.
 #
 # The in-tree package.json is intentionally kept as `name: "openclaw"` so
 # upstream merges and the existing RTT/install-sh/package-acceptance test
 # fixtures (which assert the bare name) continue to work.
+#
+# Security: the manual dispatch inputs (version, dist_tag) are passed through
+# env, never templated directly into a shell `run:` block, and validated against
+# strict regex allowlists before use. This avoids workflow-level template
+# injection (zizmor template-injection / GHSA-class).
 
 on:
   push:
@@ -31,7 +36,7 @@ on:
         required: true
         type: string
       dist_tag:
-        description: "npm dist-tag (default: latest)"
+        description: "npm dist-tag (default: latest). Allowed: latest, beta, next, alpha, cmg"
         required: false
         type: string
         default: "latest"
@@ -60,26 +65,39 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Resolve version + dist-tag
+      - name: Resolve and validate version + dist-tag
         id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DIST_TAG: ${{ inputs.dist_tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            ref="${GITHUB_REF#refs/tags/}"
-            version="${ref#v}"
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            # ref_name on a tag push is e.g. v2026.5.5-cmg.1
+            version="${REF_NAME#v}"
             dist_tag="latest"
           else
-            version="${{ inputs.version }}"
-            dist_tag="${{ inputs.dist_tag }}"
-            dist_tag="${dist_tag:-latest}"
+            version="${INPUT_VERSION}"
+            dist_tag="${INPUT_DIST_TAG:-latest}"
           fi
-          if [[ -z "$version" ]]; then
-            echo "::error::Could not resolve a version to publish"
+
+          # Validate against strict allowlists. Reject anything that could be
+          # interpreted as a shell metacharacter or otherwise change downstream
+          # command parsing.
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.+-]+)?$ ]]; then
+            echo "::error::Invalid version: '${version}' (expected semver, e.g. 2026.5.5-cmg.1)"
             exit 1
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: $version (dist-tag: $dist_tag)"
+          if ! [[ "${dist_tag}" =~ ^(latest|beta|next|alpha|cmg)$ ]]; then
+            echo "::error::Invalid dist_tag: '${dist_tag}' (allowed: latest, beta, next, alpha, cmg)"
+            exit 1
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=${dist_tag}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${version} (dist-tag: ${dist_tag})"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -117,6 +135,11 @@ jobs:
           if (!targetName || !targetVersion) {
             throw new Error("FORK_PACKAGE_NAME and FORK_VERSION must be set");
           }
+          // Defense in depth: even though the resolve step validates, refuse
+          // anything containing characters that could surprise npm.
+          if (!/^[A-Za-z0-9.+_-]+$/.test(targetVersion)) {
+            throw new Error(`Refusing suspicious version: ${targetVersion}`);
+          }
           pkg.name = targetName;
           pkg.version = targetVersion;
           if (pkg.repository && typeof pkg.repository === "object") {
@@ -139,10 +162,20 @@ jobs:
         if: ${{ github.event_name == 'push' || inputs.dry_run != true }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --tag "${{ steps.resolve.outputs.dist_tag }}"
+          PUBLISH_DIST_TAG: ${{ steps.resolve.outputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          # PUBLISH_DIST_TAG already validated against an allowlist above; we
+          # still pass it via env (not ${{ ... }} interpolation) to avoid any
+          # workflow template-injection surface in this token-bearing step.
+          npm publish --access public --tag "${PUBLISH_DIST_TAG}"
 
       - name: Dry-run note
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        env:
+          PUBLISH_VERSION: ${{ steps.resolve.outputs.version }}
+          PUBLISH_DIST_TAG: ${{ steps.resolve.outputs.dist_tag }}
         run: |
+          set -euo pipefail
           echo "Dry-run requested; skipped npm publish. Package would be:"
-          echo "  ${FORK_PACKAGE_NAME}@${{ steps.resolve.outputs.version }} --tag ${{ steps.resolve.outputs.dist_tag }}"
+          echo "  ${FORK_PACKAGE_NAME}@${PUBLISH_VERSION} --tag ${PUBLISH_DIST_TAG}"

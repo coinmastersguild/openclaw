@@ -174,8 +174,63 @@ ensure_git() {
     esac
 }
 
+existing_openclaw_bin() {
+    type -P openclaw 2>/dev/null || true
+}
+
+resolve_existing_openclaw_owner() {
+    # Returns "fork" if the existing global openclaw binary belongs to
+    # @coinmastersguild/openclaw, "upstream" if it belongs to the bare
+    # `openclaw` package, or "" if we can't tell.
+    local bin
+    bin="$(existing_openclaw_bin)"
+    if [[ -z "$bin" ]]; then
+        echo ""; return 0
+    fi
+    local target pkg_dir pkg_json owner=""
+    target="$(readlink -f "$bin" 2>/dev/null || echo "$bin")"
+    pkg_dir="${target}"
+    while [[ -n "$pkg_dir" && "$pkg_dir" != "/" && ! -f "${pkg_dir}/package.json" ]]; do
+        pkg_dir="$(dirname "$pkg_dir")"
+    done
+    pkg_json="${pkg_dir}/package.json"
+    if [[ -f "$pkg_json" ]] && command -v node >/dev/null 2>&1; then
+        owner="$(node -e "try{const p=require('$pkg_json');process.stdout.write(p.name||'')}catch(e){process.stdout.write('')}" 2>/dev/null || true)"
+    fi
+    echo "$owner"
+}
+
 install_via_npm() {
     local spec="${PACKAGE_NAME}@${PKG_VERSION}"
+    local existing owner
+    existing="$(existing_openclaw_bin)"
+    if [[ -n "$existing" ]]; then
+        owner="$(resolve_existing_openclaw_owner)"
+        case "$owner" in
+            "${PACKAGE_NAME}")
+                log "Existing ${PACKAGE_NAME} install at ${existing}; upgrading"
+                ;;
+            "openclaw")
+                if [[ "$DRY_RUN" == "1" ]]; then
+                    warn "Detected an upstream 'openclaw' install at ${existing}."
+                    warn "Real run would refuse to proceed: npm refuses to overwrite the shared 'openclaw' bin (EEXIST)."
+                    warn "Workarounds: 'npm uninstall -g openclaw' or '--install-method git'."
+                else
+                    error "Detected an upstream 'openclaw' install at ${existing}."
+                    error "The CoinMastersGuild fork shares the same 'openclaw' bin name and"
+                    error "npm will refuse to overwrite it (EEXIST). Uninstall the upstream"
+                    error "package first, then re-run this installer:"
+                    error "    npm uninstall -g openclaw"
+                    error "Or install side-by-side from a checkout: --install-method git"
+                    exit 1
+                fi
+                ;;
+            *)
+                warn "Existing 'openclaw' binary at ${existing} (owner: ${owner:-unknown})."
+                warn "If npm fails with EEXIST, run: npm uninstall -g openclaw"
+                ;;
+        esac
+    fi
     log "Installing ${spec} globally via npm"
     run npm install -g "$spec"
 }
@@ -198,8 +253,10 @@ install_via_git() {
         log "pnpm not found; installing pnpm@10 globally"
         run npm install -g pnpm@10
     fi
-    run bash -c "cd '$GIT_DIR' && pnpm install"
-    run bash -c "cd '$GIT_DIR' && pnpm build"
+    # Pass GIT_DIR as a positional argument so paths containing single quotes
+    # or other shell metacharacters cannot alter the inner command.
+    run bash -c 'cd "$1" && pnpm install' install-fork "$GIT_DIR"
+    run bash -c 'cd "$1" && pnpm build' install-fork "$GIT_DIR"
     local bin_dir="${HOME}/.local/bin"
     run mkdir -p "$bin_dir"
     local wrapper="${bin_dir}/openclaw"
@@ -222,16 +279,26 @@ post_install() {
         ok "Skipping onboarding (--no-onboard)"
         return 0
     fi
-    if [[ ! -t 0 || ! -t 1 ]]; then
-        warn "No TTY detected; skipping interactive onboarding. Run 'openclaw onboard' yourself."
-        return 0
-    fi
     if ! command -v openclaw >/dev/null 2>&1; then
         warn "'openclaw' is not on PATH yet. Open a new shell, then run 'openclaw onboard'."
         return 0
     fi
-    log "Running 'openclaw onboard' (re-run yourself if you Ctrl-C)"
-    run openclaw onboard || warn "Onboarding exited non-zero; you can re-run 'openclaw onboard' anytime."
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '%s[dry-run]%s openclaw onboard\n' "$YELLOW" "$NC"
+        return 0
+    fi
+    # When piped from curl ... | bash, our own stdin is the script body, so
+    # `[[ -t 0 ]]` is false. Reattach to /dev/tty (matching the upstream
+    # installer's pattern) so the onboarding prompt can read the user's input.
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        log "Running 'openclaw onboard' (re-run yourself if you Ctrl-C)"
+        # Use exec in a subshell to swap stdin to the controlling terminal
+        # without disturbing the parent shell's stdin.
+        ( exec </dev/tty; openclaw onboard ) \
+            || warn "Onboarding exited non-zero; you can re-run 'openclaw onboard' anytime."
+        return 0
+    fi
+    warn "No controlling TTY available; skipping interactive onboarding. Run 'openclaw onboard' yourself."
 }
 
 main() {
