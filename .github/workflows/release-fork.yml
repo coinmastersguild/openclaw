@@ -165,9 +165,10 @@ jobs:
           PUBLISH_DIST_TAG: ${{ steps.resolve.outputs.dist_tag }}
         run: |
           set -euo pipefail
-          # PUBLISH_DIST_TAG already validated against an allowlist above; we
-          # still pass it via env (not ${{ ... }} interpolation) to avoid any
-          # workflow template-injection surface in this token-bearing step.
+          # PUBLISH_DIST_TAG was validated against an allowlist in the resolve
+          # step above and is consumed here as a shell variable rather than a
+          # workflow expression, so no workflow-level interpolation runs in
+          # this token-bearing step.
           npm publish --access public --tag "${PUBLISH_DIST_TAG}"
 
       - name: Dry-run note
